@@ -25,3 +25,14 @@ Husk å legge til litt om grunn oppsett til ansible (Hent fra da jeg satt opp i 
 
 ## Web01
 
+![](assets/web01.png)
+
+web01 server -- ene web serverene i webserver cluster.
+Brukernavn: dantan \
+Passord: Passord123 \
+IP addr: 172.16.45.50 -- Kanskje flytte bak pfsense?
+
+Web server stack (installeres, konfigureres, og styres av ansible via administrasjonsserver)
+- PHP
+- NGINX
+
