@@ -14,7 +14,14 @@ Ansible host/administrasjonsserver kjører på ubuntu host dantan04-ubuntu (VMid
 
 ![](assets/ansiblehost.png)
 
-Bruker fortsatt VM dantan04-ubuntu (ID: 802, ip addr: 172.16.45.10) som ansible host, samme som AK2.
-Brukernavn: dantan
-Passord: Passord123
-IP addr: 172.16.45.10
+Bruker fortsatt VM dantan04-ubuntu (ID: 802, ip addr: 172.16.45.10) som ansible host, samme som AK2. \
+Brukernavn: dantan \
+Passord: Passord123 \
+IP addr: 172.16.45.10  -- Kanskje flytte bak pfsense?
+
+Ansible root dir for dette arbeidskravet: /home/dantan/ansible-ak3
+
+Husk å legge til litt om grunn oppsett til ansible (Hent fra da jeg satt opp i ak2)
+
+## Web01
+
