@@ -50,13 +50,36 @@ Web server stack (installeres, konfigureres, og styres av ansible via administra
 - PHP
 - NGINX
 
+## LB01
+
+
+![](assets/lb01.png)
+
+Brukernavn: dantan \
+Passord: Passord123 \
+IP addr: 172.16.45.52 -- Kanskje flytte bak pfsense?
+
+Tjenester -- (installeres, konfigureres, og styres av ansible via administrasjonsserver)
+- HAProxy
+
+## DB01
+
+![](assets/db01.png)
+
+Brukernavn: dantan \
+Passord: dantan \
+IP addr: 172.16.45.53 -- Kanskje flytte bak pfsense?
+
+Tjenester -- (installeres, konfigureres, og styres av ansible via administrasjonsserver)
+- PostgreSQL
+
 ## Sette opp dedikert ansible bruker på target servere (gjentas på alle servere, unntatt administrasjonsserver)
 
 TODO: Sette opp ansible bruker på alle ansible klientene:
 - [ ] web01
 - [X] web02
 - [ ] db01
-- [ ] lb01
+- [X] lb01
 
 ### Opprette ansible bruker
 
@@ -69,8 +92,9 @@ Passord: Passord123
 - Kjører sudo visudo
 - Legger til ```ansible ALL=(ALL) NOPASSWD: ALL``` i text filen som kommer opp
 
-Tester at dette virker ved å bytte til ansible brukeren, og kjøre ```sudo whoami``` 
+Tester at dette virker ved å bytte til ansible brukeren, og kjøre ```sudo whoami```   
 ![](assets/nopasswdsudotest.png)
+
 Får kjørt sudo kommandoer uten passord. Alt ok!
 
 ### Passwordless login
