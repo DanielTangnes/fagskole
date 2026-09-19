@@ -78,16 +78,19 @@ Får kjørt sudo kommandoer uten passord. Alt ok!
 Setter opp passwordless login, med RSA key, for å forhindre uautorisert innlogging ved passordlekkasje.
 
 TODO: Når ansible bruker er satt opp med nopasswd sudo på alle servere. Aktiver RSA key innlogging med følgende kommandoer:
-- ```# 1. Generate the key on the admin server (if you haven't already)
+- ```
+     1. Generate the key on the admin server (if you haven't already)
     ssh-keygen -t rsa -b 4096 -C "admin-server"
 
-    # 2. Push the key to all 4 servers in one go
+     2. Push the key to all 4 servers in one go
     for server in server1_ip server2_ip server3_ip server4_ip; do
         ssh-copy-id user@$server
     done
     ```
 TODO: Deaktiver passord autentisering med følgende kommandoer (Kanskje ikke gjøre?:
-- ```for server in server1_ip server2_ip server3_ip server4_ip; do
-        echo "Configuring $server..."
-        ssh user@$server "sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sudo systemctl restart sshd"
-    done ```
+```
+for server in server1_ip server2_ip server3_ip server4_ip; do
+    echo "Configuring $server..."
+    ssh user@$server "sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sudo systemctl restart sshd"
+done
+```
