@@ -1,5 +1,9 @@
 # Arbeidskrav 3 Linux serverdrift -- Tjenestemiljø
 
+NOTE: Testet ansible oppsett med ping playbook. Alle OK.
+- **Neste:** Sett opp LB med HAProxy i multipass miljø for å finne ut av hvordan det virker.
+- Opprett playbook for HAProxy vm.
+
 ## Planlagt oppsett
 
 ![](assets/arkitekturtegning.png)
