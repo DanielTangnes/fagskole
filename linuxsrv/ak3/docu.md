@@ -40,6 +40,7 @@ Web server stack (installeres, konfigureres, og styres av ansible via administra
 ## Web02
 
 ![](assets/web02.png)
+
 (Klonet web01 etter ubuntuinstallasjon, så hostname står som web01 i bildet over. Men er nå endret til web02)
 web02 server -- ene web serverene i webserver cluster.
 Brukernavn: dantan \
@@ -76,9 +77,9 @@ Tjenester -- (installeres, konfigureres, og styres av ansible via administrasjon
 ## Sette opp dedikert ansible bruker på target servere (gjentas på alle servere, unntatt administrasjonsserver)
 
 TODO: Sette opp ansible bruker på alle ansible klientene:
-- [ ] web01
+- [X] web01
 - [X] web02
-- [ ] db01
+- [X] db01
 - [X] lb01
 
 ### Opprette ansible bruker
@@ -101,12 +102,14 @@ Får kjørt sudo kommandoer uten passord. Alt ok!
 
 Setter opp passwordless login, med RSA key, for å forhindre uautorisert innlogging ved passordlekkasje.
 
-TODO: Når ansible bruker er satt opp med nopasswd sudo på alle servere. Aktiver RSA key innlogging med følgende kommandoer:
-- ```
-     1. Generate the key on the admin server (if you haven't already)
-    ssh-keygen -t rsa -b 4096 -C "admin-server"
+![](assets/sshkeygen.png)
 
-     2. Push the key to all 4 servers in one go
+Kjører ```ssh-keygen -t rsa -b 4096 -C "admin-server"``` for å generere rsa key pair. Dette blir lastet opp til alle de andre serverene som skal bli administrert av ansible.
+
+Laster opp key til alle servere samtidig med følgende kommando:
+
+ ```
+    *Push the key to all 4 servers in one go*
     for server in server1_ip server2_ip server3_ip server4_ip; do
         ssh-copy-id user@$server
     done
