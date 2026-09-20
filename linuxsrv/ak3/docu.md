@@ -109,7 +109,7 @@ Får kjørt sudo kommandoer uten passord. Alt ok!
 
 Setter opp passwordless login, med RSA key, for å forhindre uautorisert innlogging ved passordlekkasje.
 
-![](assets/sshkeygen.png)
+![](assets/sshkeygen2.png)
 
 Kjører ```ssh-keygen -t rsa -b 4096 -f ~/.ssh/ansible_rsa -C "ansible@mgmt"``` for å generere rsa key pair. Dette blir lastet opp til alle de andre serverene som skal bli administrert av ansible.
 
@@ -121,6 +121,17 @@ Laster opp key til alle servere samtidig med følgende kommando:
         ssh-copy-id ansible@$server
     done
 
+```
+
+Legger til ` from=mgmtIP ` for å kun tillate rsa key fra management serveren.
+
+```yml
+- name: Authorize ansible key from management server only
+  ansible.posix.authorized_key:
+    user: ansible
+    key: "{{ lookup(`file`, `~/.ssh/ansible_rsa.pub`) }}"
+    key_options: `from="172.16.45.10"`  # IP adresse til management-server
+    exclusive: true
 ```
 
 #### Hvorfor 1 private-key for alle 4 managed servere?
