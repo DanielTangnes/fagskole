@@ -111,17 +111,22 @@ Setter opp passwordless login, med RSA key, for å forhindre uautorisert innlogg
 
 ![](assets/sshkeygen.png)
 
-Kjører ```ssh-keygen -t rsa -b 4096 -C "admin-server"``` for å generere rsa key pair. Dette blir lastet opp til alle de andre serverene som skal bli administrert av ansible.
+Kjører ```ssh-keygen -t rsa -b 4096 -f ~/.ssh/ansible_rsa -C "ansible@mgmt"``` for å generere rsa key pair. Dette blir lastet opp til alle de andre serverene som skal bli administrert av ansible.
 
 Laster opp key til alle servere samtidig med følgende kommando:
 
  ```
     *Push the key to all 4 servers in one go*
-    for server in server1_ip server2_ip server3_ip server4_ip; do
-        ssh-copy-id user@$server
+    for server in web01 web02 lb01 db01; do
+        ssh-copy-id ansible@$server
     done
 
 ```
+
+#### Hvorfor 1 private-key for alle 4 managed servere?
+
+Å ha ett unikt key par for alle 4 managed servere ville bare ført til ekstra arbeid for null betydningsfull ønking i sikkerhet. \
+Alle 4 private-keys ville ha endt opp i samme mappe på management serveren, leselig av samme konto. Så alle som kunne ha lest 1 kunne ha lest alle.
 
 TODO: Deaktiver passord autentisering med følgende kommandoer (Kanskje ikke gjøre?:
 
