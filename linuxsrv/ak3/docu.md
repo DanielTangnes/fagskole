@@ -118,7 +118,7 @@ Laster opp key til alle servere samtidig med følgende kommando:
  ```
     *Push the key to all 4 servers in one go*
     for server in web01 web02 lb01 db01; do
-        ssh-copy-id ansible@$server
+        ssh-copy-id -i ~/.ssh/ansible_rsa.pub ansible@$server
     done
 
 ```
@@ -134,16 +134,37 @@ Legger til ` from=mgmtIP ` for å kun tillate rsa key fra management serveren.
     exclusive: true
 ```
 
+![](assets/authorizedkeyrun.png)
+
+![](assets/authorizedkeytest.png)
+
+Verifiserer at authorizedkey playbook virket. SSHer inn i web01 med ansible_rsa privatekey, og sjekker at .ssh/authorized_keys har blitt oppdatert til å inkludere from="172.16.45.10"
+
 #### Hvorfor 1 private-key for alle 4 managed servere?
 
 Å ha ett unikt key par for alle 4 managed servere ville bare ført til ekstra arbeid for null betydningsfull ønking i sikkerhet. \
 Alle 4 private-keys ville ha endt opp i samme mappe på management serveren, leselig av samme konto. Så alle som kunne ha lest 1 kunne ha lest alle.
 
-TODO: Deaktiver passord autentisering med følgende kommandoer (Kanskje ikke gjøre?:
+**Låser passordet til ansible bruker på alle managed server, slik at kun innlogging med ansible_rsa private key er tillatt på ansible brukeren**
 
+```yml
+---
+- name: Authorizedkey
+  hosts: all
+  become: true
+  tasks:
+  - name: Authorize ansible key from management server
+    ansible.posix.authorized_key:
+      user: ansible
+      key: "{{ lookup('file', '~/.ssh/ansible_rsa.pub') }}"
+      key_options: 'from="172.16.45.10"'  # IP adresse til management-server
+      exclusive: true
+
+  - name: Disable password login on ansible account by locking the password for the account
+    ansible.builtin.user:
+      user: ansible
+      state: present
+      password_lock: true
 ```
-for server in server1_ip server2_ip server3_ip server4_ip; do
-    echo "Configuring $server..."
-    ssh user@$server "sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sudo systemctl restart sshd"
-done
-```
+
+*Hele ansible playbook for å sette ip restriction på ssh key + disable passord login*
