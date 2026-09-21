@@ -26,8 +26,9 @@ haproxy_state_file: /var/lib/haproxy/server-state
 # password is empty. Put the real password in ansible-vault.
 haproxy_stats_bind: "*:8404"
 haproxy_stats_user: admin
-haproxy_stats_password: "Passord123" TODO: endre passord, og sikre i ansible vault
 
+TODO: endre passord, og sikre i ansible vault
+haproxy_stats_password: "Passord123" 
 # Requires the community.general collection.
 manage_firewall: true
 
