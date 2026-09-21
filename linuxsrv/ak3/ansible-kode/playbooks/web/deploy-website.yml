@@ -1,0 +1,203 @@
+---
+# Rolling, zero-downtime deploy of the website behind HAProxy.
+#
+# Web servers are updated one at a time. For each one that is behind:
+#   1. confirm another server is UP, so draining this one is safe
+#   2. drain it on every load balancer (in-flight requests finish)
+#   3. check out the new code, reload PHP-FPM, smoke-test the node directly
+#   4. put it back and wait until HAProxy's health check reports UP
+# Any failure stops the rollout, leaving the failed node drained and the
+# remaining nodes untouched on the previous release.
+#
+#   ansible-playbook playbooks/web/deploy-website.yml
+#   ansible-playbook playbooks/web/deploy-website.yml -e git_branch=v1.4.2
+#   ansible-playbook playbooks/web/deploy-website.yml -e force_deploy=true
+#
+# Hosts already on the target commit are skipped without touching HAProxy.
+# Without an [lb] group the drain/enable steps are skipped automatically.
+
+- name: Rolling deploy of the website
+  hosts: web
+  become: true
+  serial: 1
+  any_errors_fatal: true
+
+  vars:
+    use_lb: "{{ groups['lb'] | default([]) | length > 0 }}"
+    force_deploy: false
+    allow_downtime: false
+    lb_wait_interval: 2
+    lb_wait_retries: 30
+
+  pre_tasks:
+    - name: Detect the installed PHP version
+      ansible.builtin.include_tasks: tasks/detect-php-version.yml
+      when: php_version | length == 0
+
+  tasks:
+    - name: Check whether {{ inventory_hostname }} is behind {{ git_branch }}
+      ansible.builtin.git: &git_checkout
+        repo: "{{ git_repo }}"
+        dest: "{{ app_root }}"
+        version: "{{ git_branch }}"
+        force: true
+        accept_newhostkey: true
+        key_file: "{{ git_deploy_key_dest if (git_deploy_key_src | default('') | length > 0) else omit }}"
+      check_mode: true
+      register: git_precheck
+
+    - name: Already up to date
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} is already at {{ git_precheck.before }}; left in rotation."
+      when: not (git_precheck.changed or force_deploy | bool)
+
+    - name: Update {{ inventory_hostname }}
+      when: git_precheck.changed or force_deploy | bool
+      block:
+        # ── 1. Is it safe to take this node out? ─────────────────────────
+        - name: Read backend state from HAProxy
+          ansible.builtin.shell: echo "show stat" | socat stdio {{ haproxy_socket }}
+          register: haproxy_stat
+          changed_when: false
+          delegate_to: "{{ groups['lb'][0] }}"
+          when: use_lb | bool
+
+        - name: Refuse to drain the last healthy server
+          ansible.builtin.assert:
+            that: other_healthy | int > 0 or allow_downtime | bool
+            fail_msg: >-
+              No other server in {{ haproxy_backend }} is UP, so draining
+              {{ haproxy_server_name }} would take the site down. Fix the
+              other nodes first, or re-run with -e allow_downtime=true.
+            quiet: true
+          vars:
+            other_healthy: >-
+              {{ haproxy_stat.stdout_lines
+                 | map('split', ',')
+                 | selectattr('0', 'equalto', haproxy_backend)
+                 | rejectattr('1', 'in', ['BACKEND', haproxy_server_name])
+                 | selectattr('17', 'match', '^UP')
+                 | list | length }}
+          when: use_lb | bool
+
+        # ── 2. Take it out of rotation ───────────────────────────────────
+        # drain: stop sending new requests, wait for active ones to finish,
+        # then go to MAINT.
+        - name: Drain from every load balancer
+          community.general.haproxy:
+            state: disabled
+            drain: true
+            backend: "{{ haproxy_backend }}"
+            host: "{{ haproxy_server_name }}"
+            socket: "{{ haproxy_socket }}"
+            wait: true
+            wait_interval: "{{ lb_wait_interval }}"
+            wait_retries: "{{ lb_wait_retries }}"
+          delegate_to: "{{ item }}"
+          loop: "{{ groups['lb'] | default([]) }}"
+
+        # ── 3. Update and verify it while nobody is using it ─────────────
+        - name: Deploy and verify
+          block:
+            - name: Check out {{ git_branch }}
+              ansible.builtin.git: *git_checkout
+              register: checkout
+
+            - name: Set ownership on the checkout
+              ansible.builtin.file:
+                path: "{{ app_root }}"
+                state: directory
+                owner: "{{ app_owner }}"
+                group: "{{ app_group }}"
+                recurse: true
+
+            # Symbolic mode on purpose: it never adds the exec bit to files,
+            # which git tracks, so the next precheck doesn't see a dirty tree.
+            - name: Make application paths writable by PHP-FPM
+              ansible.builtin.file:
+                path: "{{ app_root }}/{{ item }}"
+                state: directory
+                owner: www-data
+                group: "{{ app_group }}"
+                mode: "u+rwX,g+rwX"
+                recurse: true
+              loop: "{{ app_writable_paths }}"
+
+            - name: Look for composer.json
+              ansible.builtin.stat:
+                path: "{{ app_root }}/composer.json"
+              register: composer_json
+              when: install_composer | bool
+
+            - name: Install PHP dependencies
+              ansible.builtin.command:
+                cmd: "composer install {{ composer_install_args }}"
+                chdir: "{{ app_root }}"
+              environment:
+                COMPOSER_ALLOW_SUPERUSER: "1"
+              when:
+                - install_composer | bool
+                - composer_json.stat.exists | default(false)
+              changed_when: true
+
+            # Always reload here rather than via a handler: we only reach
+            # this block when there is new code (or force_deploy), and a
+            # handler would fire after the node is already back in rotation.
+            - name: Reload PHP-FPM to pick up the new code
+              ansible.builtin.service:
+                name: "{{ php_fpm_service }}"
+                state: reloaded
+
+            - name: Smoke-test the health endpoint on this node
+              ansible.builtin.uri:
+                url: "http://127.0.0.1{{ haproxy_health_uri | default('/health') }}"
+                status_code: 200
+                timeout: 10
+              register: smoke_health
+              until: smoke_health is succeeded
+              retries: 5
+              delay: 2
+              changed_when: false
+
+            - name: Smoke-test the site on this node
+              ansible.builtin.uri:
+                url: "http://127.0.0.1/"
+                headers:
+                  Host: "{{ server_name.split() | first }}"
+                status_code: "{{ deploy_smoke_test_status | default([200]) }}"
+                timeout: 15
+              register: smoke_site
+              until: smoke_site is succeeded
+              retries: 5
+              delay: 2
+              changed_when: false
+              when: deploy_smoke_test | default(true) | bool
+
+          rescue:
+            - name: Stop the rollout
+              ansible.builtin.fail:
+                msg: >-
+                  Deploy failed on {{ inventory_hostname }} at
+                  "{{ ansible_failed_task.name }}".
+                  {{ 'It is still drained on the load balancer. ' if use_lb | bool else '' }}
+                  Remaining servers were not touched and are serving the
+                  previous release.
+
+        # ── 4. Put it back ───────────────────────────────────────────────
+        # wait: true blocks until HAProxy's own health check reports UP, so
+        # the next host is not drained until this one is actually serving.
+        - name: Return to every load balancer and wait until healthy
+          community.general.haproxy:
+            state: enabled
+            backend: "{{ haproxy_backend }}"
+            host: "{{ haproxy_server_name }}"
+            socket: "{{ haproxy_socket }}"
+            wait: true
+            wait_interval: "{{ lb_wait_interval }}"
+            wait_retries: "{{ lb_wait_retries }}"
+          delegate_to: "{{ item }}"
+          loop: "{{ groups['lb'] | default([]) }}"
+
+        - name: Report the deployed commit
+          ansible.builtin.debug:
+            msg: "{{ inventory_hostname }} is now at {{ checkout.after | default('unknown') }} ({{ git_branch }})"

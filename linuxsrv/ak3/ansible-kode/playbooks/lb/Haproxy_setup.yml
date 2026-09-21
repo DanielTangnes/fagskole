@@ -1,0 +1,117 @@
+---
+# Provision HAProxy in front of the [web] group.
+#
+#   ansible-playbook playbooks/lb/haproxy-setup.yml
+#
+# Run playbooks/web/nginx-php-setup.yml first: HAProxy health-checks /health
+# on every web server, and a server without that endpoint is marked DOWN.
+
+- name: Install and configure HAProxy
+  hosts: lb
+  become: true
+
+  pre_tasks:
+    - name: Refuse to run on anything but Ubuntu
+      ansible.builtin.assert:
+        that: ansible_facts['distribution'] == "Ubuntu"
+        fail_msg: "This playbook targets Ubuntu, found {{ ansible_facts['distribution'] }}."
+        quiet: true
+
+    - name: Make sure there is something to balance
+      ansible.builtin.assert:
+        that: groups['web'] | default([]) | length > 0
+        fail_msg: "The inventory has no hosts in the [web] group."
+        quiet: true
+
+  tasks:
+    # socat is for the deploy playbook's pre-flight check and for manual
+    # socket commands; the haproxy module itself talks to the socket directly.
+    - name: Install HAProxy and socat
+      ansible.builtin.apt:
+        name:
+          - haproxy
+          - socat
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install the HAProxy configuration
+      ansible.builtin.template:
+        src: haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+        owner: root
+        group: root
+        mode: "0644"
+        validate: haproxy -c -f %s
+      notify: Reload haproxy
+
+    - name: Start and enable HAProxy
+      ansible.builtin.service:
+        name: haproxy
+        state: started
+        enabled: true
+
+    - name: Allow HTTP through ufw
+      community.general.ufw:
+        rule: allow
+        port: "{{ haproxy_frontend_port | string }}"
+        proto: tcp
+      when: manage_firewall | bool
+
+    - name: Allow the stats page through ufw
+      community.general.ufw:
+        rule: allow
+        port: "{{ haproxy_stats_bind.split(':') | last }}"
+        proto: tcp
+      when:
+        - manage_firewall | bool
+        - haproxy_stats_password | length > 0
+
+  post_tasks:
+    # Handlers from the tasks section have already run by now.
+    - name: Give health checks a few rounds
+      ansible.builtin.pause:
+        seconds: 8
+
+    - name: Wait until at least one web server is healthy
+      ansible.builtin.shell: echo "show stat" | socat stdio {{ haproxy_socket }}
+      register: haproxy_stat
+      changed_when: false
+      until: >-
+        haproxy_stat.stdout_lines
+        | map('split', ',')
+        | selectattr('0', 'equalto', haproxy_backend)
+        | rejectattr('1', 'equalto', 'BACKEND')
+        | selectattr('17', 'match', '^UP')
+        | list | length > 0
+      retries: 15
+      delay: 2
+
+    - name: Report backend health
+      ansible.builtin.debug:
+        msg: "{{ item[1] }}: {{ item[17] }}"
+      loop: >-
+        {{ haproxy_stat.stdout_lines
+           | map('split', ',')
+           | selectattr('0', 'equalto', haproxy_backend)
+           | rejectattr('1', 'equalto', 'BACKEND')
+           | list }}
+      loop_control:
+        label: "{{ item[1] }}"
+
+  handlers:
+    # Snapshot per-server state (MAINT, DOWN, weights) so the reloaded
+    # process picks it up via load-server-state-from-file. Without this, a
+    # reload during a deploy would put a drained server straight back in.
+    - name: Save server state
+      ansible.builtin.shell: >-
+        echo "show servers state" | socat stdio {{ haproxy_socket }}
+        > {{ haproxy_state_file }}
+      failed_when: false
+      listen: Reload haproxy
+
+    - name: Reload the haproxy service
+      ansible.builtin.service:
+        name: haproxy
+        state: reloaded
+      listen: Reload haproxy

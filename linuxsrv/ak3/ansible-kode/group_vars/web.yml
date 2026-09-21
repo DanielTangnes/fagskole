@@ -1,0 +1,73 @@
+---
+# ─────────────────────────────── Site ────────────────────────────────────
+site_name: testside.local
+server_name: "testside.local www.testside.local"
+
+app_root: "/var/www/{{ site_name }}"
+
+# Directory *inside the repo* that nginx serves. Set to "" when index.php
+# sits at the repository root.
+app_public_dir: ""
+web_root: "{{ [app_root, app_public_dir] | select | join('/') }}"
+
+# Code is owned by root and only readable by the web server, so a
+# compromised PHP process cannot rewrite the application.
+app_owner: root
+app_group: www-data
+
+# Repo-relative paths PHP-FPM needs write access to.
+app_writable_paths: []
+#  - storage
+#  - var/cache
+
+# ──────────────────────────────── Git ────────────────────────────────────
+git_repo: "https://github.com/DanielTangnes/23ITDNETT-AK3-LINUX-WEBSITE.git"
+git_branch: main
+
+# Private deploy key on the CONTROL NODE, copied to the servers by setup.yml.
+# Comment this out entirely for a public repo cloned over https://
+#git_deploy_key_src: "~/.ssh/deploy_{{ site_name }}"
+#git_deploy_key_dest: "/root/.ssh/deploy_key"
+
+# ──────────────────────────────── PHP ────────────────────────────────────
+# Ubuntu ships one PHP version per release. To use a different one, set
+# php_use_ondrej_ppa: true and pin php_version yourself.
+php_version: ""
+php_use_ondrej_ppa: false
+
+# Package suffixes; each becomes php<version>-<name>. Keep "cli".
+php_extensions:
+  - cli
+  - mbstring
+  - xml
+  - curl
+  - zip
+  - gd
+  - intl
+  - bcmath
+  # - mysql
+  # - pgsql
+  # - redis
+
+php_fpm_service: "php{{ php_version }}-fpm"
+php_fpm_socket: "/run/php/php{{ php_version }}-fpm.sock"
+
+php_memory_limit: "256M"
+php_upload_max_filesize: "32M"
+php_post_max_size: "32M"
+php_max_execution_time: 60
+php_timezone: "UTC"
+php_opcache_enable: true
+
+# ───────────────────────────── Optional ──────────────────────────────────
+install_composer: false
+composer_install_args: "--no-dev --optimize-autoloader --no-interaction --prefer-dist"
+
+# Requires the community.general collection:
+#   ansible-galaxy collection install community.general
+manage_firewall: true
+
+# Deploy behaviour
+deploy_serial: "100%"      # set to 1 to roll one host at a time
+deploy_smoke_test: true
+

@@ -1,0 +1,33 @@
+---
+haproxy_frontend_port: 80
+haproxy_backend_port: 80
+haproxy_balance: roundrobin
+
+# Health check. /health is served by nginx on each web node and runs a tiny
+# PHP script outside the repo, so it proves nginx -> PHP-FPM is working.
+haproxy_health_uri: /health
+haproxy_health_host: localhost
+haproxy_check_inter: 2s
+haproxy_check_fall: 3          # 3 failed checks (~6s) -> DOWN
+haproxy_check_rise: 2          # 2 passing checks (~4s) -> UP
+
+# Ramp a freshly returned server up over this period instead of handing it
+# full traffic with a cold opcache.
+haproxy_slowstart: 10s
+
+# Must exceed php_max_execution_time, or HAProxy cuts off slow requests
+# that PHP would still have completed.
+haproxy_timeout_server: 70s
+
+# Lets servers keep their MAINT/DOWN state across HAProxy reloads.
+haproxy_state_file: /var/lib/haproxy/server-state
+
+# Stats page, handy for watching a rolling deploy. Disabled while the
+# password is empty. Put the real password in ansible-vault.
+haproxy_stats_bind: "*:8404"
+haproxy_stats_user: admin
+haproxy_stats_password: "Passord123" TODO: endre passord, og sikre i ansible vault
+
+# Requires the community.general collection.
+manage_firewall: true
+

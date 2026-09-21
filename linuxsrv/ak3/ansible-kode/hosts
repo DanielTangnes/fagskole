@@ -1,0 +1,13 @@
+# TODO: Hosts definert er multipass miljø, endre til proxmox adresser
+
+[web]
+web01 ansible_host=10.188.38.32
+web02 ansible_host=10.188.38.60
+web03 ansible_host=10.188.38.163
+
+[db]
+db01 ansible_host=10.188.38.145
+
+[lb]
+lb01 ansible_host=10.188.38.18
+

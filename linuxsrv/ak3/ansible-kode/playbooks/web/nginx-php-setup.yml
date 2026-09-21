@@ -1,0 +1,197 @@
+---
+# Provision nginx + PHP-FPM on the web servers.
+#
+#   ansible-playbook playbooks/web/nginx-php-setup.yml
+
+- name: Install and configure nginx + PHP-FPM
+  hosts: web
+  become: true
+
+  vars:
+    health_check_dir: /var/www/_health
+
+  pre_tasks:
+    - name: Refuse to run on anything but Ubuntu
+      ansible.builtin.assert:
+        that: ansible_facts['distribution'] == "Ubuntu"
+        fail_msg: "This playbook targets Ubuntu, found {{ ansible_facts['distribution'] }}."
+        quiet: true
+
+  tasks:
+    - name: Install base packages
+      ansible.builtin.apt:
+        name:
+          - git
+          - acl
+          - ca-certificates
+          - software-properties-common
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Add the ondrej/php PPA
+      ansible.builtin.apt_repository:
+        repo: ppa:ondrej/php
+        state: present
+        update_cache: true
+      when: php_use_ondrej_ppa | bool
+
+    - name: Install nginx
+      ansible.builtin.apt:
+        name: nginx
+        state: present
+
+    # Empty php_version -> unversioned metapackages (php-fpm, php-cli, ...)
+    - name: Install PHP-FPM and extensions
+      ansible.builtin.apt:
+        name: "{{ php_packages }}"
+        state: present
+      vars:
+        php_prefix: "php{{ php_version }}-"
+        php_packages: >-
+          {{ (['fpm'] + php_extensions)
+             | map('regex_replace', '^', php_prefix) | list }}
+
+    - name: Install composer
+      ansible.builtin.apt:
+        name: composer
+        state: present
+      when: install_composer | bool
+
+    - name: Detect the installed PHP version
+      ansible.builtin.include_tasks: tasks/detect-php-version.yml
+      when: php_version | length == 0
+
+    # ── PHP tuning ───────────────────────────────────────────────────────
+    - name: Apply PHP overrides for FPM and CLI
+      ansible.builtin.template:
+        src: php-overrides.ini.j2
+        dest: "/etc/php/{{ php_version }}/{{ item }}/conf.d/99-app.ini"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ ['fpm'] + (['cli'] if 'cli' in php_extensions else []) }}"
+      notify: Restart php-fpm
+
+    # ── Web root ─────────────────────────────────────────────────────────
+    # Left empty on purpose: the deploy playbook clones the repo into it.
+    - name: Create the application root
+      ansible.builtin.file:
+        path: "{{ app_root }}"
+        state: directory
+        owner: "{{ app_owner }}"
+        group: "{{ app_group }}"
+        mode: "0755"
+
+    # ── Health check endpoint for HAProxy ────────────────────────────────
+    - name: Create the health-check directory
+      ansible.builtin.file:
+        path: "{{ health_check_dir }}"
+        state: directory
+        owner: root
+        group: www-data
+        mode: "0755"
+
+    - name: Install the health-check script
+      ansible.builtin.copy:
+        dest: "{{ health_check_dir }}/health.php"
+        content: |
+          <?php
+          header('Content-Type: text/plain');
+          header('Cache-Control: no-store');
+          echo "ok\n";
+        owner: root
+        group: www-data
+        mode: "0644"
+
+    # ── nginx vhost ──────────────────────────────────────────────────────
+    - name: Remove the default nginx site
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/nginx/sites-enabled/default
+        - /etc/nginx/sites-available/default
+      notify: Reload nginx
+
+    - name: Install the vhost
+      ansible.builtin.template:
+        src: nginx-site.conf.j2
+        dest: "/etc/nginx/sites-available/{{ site_name }}.conf"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload nginx
+
+    - name: Enable the vhost
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ site_name }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ site_name }}.conf"
+        state: link
+      notify: Reload nginx
+
+    # ── GitHub deploy key ────────────────────────────────────────────────
+    - name: Ensure the key directory exists
+      ansible.builtin.file:
+        path: "{{ git_deploy_key_dest | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      when: git_deploy_key_src | default('') | length > 0
+
+    - name: Install the GitHub deploy key
+      ansible.builtin.copy:
+        src: "{{ git_deploy_key_src }}"
+        dest: "{{ git_deploy_key_dest }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: git_deploy_key_src | default('') | length > 0
+      no_log: true
+
+    # ── Services and firewall ────────────────────────────────────────────
+    - name: Start and enable nginx and PHP-FPM
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - nginx
+        - "{{ php_fpm_service }}"
+
+    - name: Allow HTTP and HTTPS through ufw
+      community.general.ufw:
+        rule: allow
+        name: "Nginx Full"
+      when: manage_firewall | bool
+
+  post_tasks:
+    - name: Verify the nginx configuration on disk
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Verify the health endpoint answers
+      ansible.builtin.uri:
+        url: http://127.0.0.1/health
+        status_code: 200
+      changed_when: false
+
+  handlers:
+    # Both listen on the same topic, so a bad template fails the host at
+    # "nginx -t" instead of reloading a broken config.
+    - name: Validate the nginx configuration
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      listen: Reload nginx
+
+    - name: Reload the nginx service
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      listen: Reload nginx
+
+    - name: Restart php-fpm
+      ansible.builtin.service:
+        name: "{{ php_fpm_service }}"
+        state: restarted

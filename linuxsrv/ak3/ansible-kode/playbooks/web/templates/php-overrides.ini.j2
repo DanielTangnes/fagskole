@@ -1,0 +1,21 @@
+; {{ ansible_managed }}
+
+memory_limit        = {{ php_memory_limit }}
+upload_max_filesize = {{ php_upload_max_filesize }}
+post_max_size       = {{ php_post_max_size }}
+max_execution_time  = {{ php_max_execution_time }}
+date.timezone       = {{ php_timezone }}
+expose_php          = Off
+cgi.fix_pathinfo    = 0
+
+{% if php_opcache_enable %}
+opcache.enable                  = 1
+opcache.enable_cli              = 0
+opcache.memory_consumption      = 128
+opcache.interned_strings_buffer = 16
+opcache.max_accelerated_files   = 20000
+; Files are never stat'ed for changes, so a deploy is only picked up when
+; PHP-FPM is reloaded. deploy.yml does that for you.
+opcache.validate_timestamps     = 0
+{% endif %}
+

@@ -1,0 +1,17 @@
+---
+- name: Ask PHP which version it is
+  ansible.builtin.command: php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;'
+  register: php_detected
+  changed_when: false
+  check_mode: false
+
+- name: Use the detected version for service and socket names
+  ansible.builtin.set_fact:
+    php_version: "{{ php_detected.stdout | trim }}"
+
+- name: Sanity-check it
+  ansible.builtin.assert:
+    that: php_version is match('^[0-9]+\.[0-9]+$')
+    fail_msg: "Unexpected PHP version string: {{ php_version }}"
+    quiet: true
+

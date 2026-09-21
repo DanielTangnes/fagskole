@@ -1,0 +1,8 @@
+---
+# Shared between the [lb] and [web] plays. The HAProxy template writes
+# "server <haproxy_server_name> ..." for every web host, and the deploy
+# playbook drains by the same name, so the two can never disagree.
+haproxy_backend: web_backend
+haproxy_socket: /run/haproxy/admin.sock
+haproxy_server_name: "{{ inventory_hostname_short }}"
+
