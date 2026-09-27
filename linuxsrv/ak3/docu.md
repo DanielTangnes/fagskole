@@ -23,6 +23,9 @@ Brukernavn: dantan \
 Passord: Passord123 \
 IP addr: 172.16.45.10  -- Kanskje flytte bak pfsense?
 
+SSL cert oppsett på mgmt server:
+    - apt install mkcert libnss3-tools
+
 Ansible root dir for dette arbeidskravet: /home/dantan/ansible-ak3
 
 Husk å legge til litt om grunn oppsett til ansible (Hent fra da jeg satt opp i ak2)
