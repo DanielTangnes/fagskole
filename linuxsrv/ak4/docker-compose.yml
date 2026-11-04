@@ -1,0 +1,134 @@
+# AK4 - Fagskolen Industrier: web + database i containere, med overvåking
+# Start:  docker compose up -d
+# Stopp:  docker compose down        (legg til -v for å slette databasen og starte på nytt)
+
+name: ak4
+
+services:
+
+  # ---------- Applikasjon ----------
+
+  database:
+    build: ./database
+    env_file: .env
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    networks: [backend]
+    # Ingen "ports": databasen skal bare kunne nås fra docker-nettet, ikke fra host
+    healthcheck:
+      # Lykkes først når den endelige serveren lytter på TCP (ikke under init, som bare bruker socket)
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  webserver:
+    build: ./webserver
+    environment:
+      # Navnene index.php leser med getenv()
+      DB_HOST: database            # service-navnet over -> Docker sin interne DNS
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASSWORD}
+    ports:
+      - "8080:80"
+    networks: [frontend, backend]
+    depends_on:
+      database:
+        condition: service_healthy  # vent til DB faktisk svarer, ikke bare til containeren har startet
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------- Overvåking ----------
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [monitoring]
+    restart: unless-stopped
+
+  # Maskinvare på Linux-hosten: CPU, RAM, disk, nettverk
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/rootfs
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    pid: host
+    networks: [monitoring]
+    restart: unless-stopped
+
+  # Ressursbruk per container: CPU, minne, nettverk
+  # NB: >= 0.53 kreves med Docker 29 / containerd image store (standard på nye installasjoner).
+  # Eldre cAdvisor (gcr.io/cadvisor/cadvisor:v0.52.x) finner ikke containerne der.
+  # Fra 0.53 publiseres imaget på ghcr.io/google/cadvisor.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=10s
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    # Ingen "ports": cAdvisor bruker 8080 internt, og webserver har 8080 på host
+    networks: [monitoring]
+    restart: unless-stopped
+
+  # Oppe/nede-sjekk av tjenestene: HTTP mot web (inkl. DB-tilkobling) og TCP mot database
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./monitoring/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks: [monitoring, backend]   # backend: må nå webserver og database
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/ak4-oversikt.json
+    volumes:
+      # Datakilde og dashboard provisioneres fra filer -> ingen manuelle steg etter oppstart
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks: [monitoring]
+    depends_on: [prometheus]
+    restart: unless-stopped
+
+networks:
+  frontend:     # host -> webserver
+  backend:      # webserver <-> database (+ blackbox for sjekker)
+  monitoring:   # prometheus, exportere og grafana
+
+volumes:
+  dbdata:
+  promdata:
+  grafanadata:

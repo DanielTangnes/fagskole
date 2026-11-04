@@ -1,0 +1,49 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Linux-hosten (CPU, RAM, disk, nett)
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Containere (ressursbruk per container)
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  # Er nettsiden oppe OG får den kontakt med databasen? probe_success = 1/0
+  - job_name: blackbox-web
+    metrics_path: /probe
+    params:
+      module: [http_app]
+    static_configs:
+      - targets: ["http://webserver:80/"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+
+  # Svarer databasen på port 5432? probe_success = 1/0
+  - job_name: blackbox-db
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: ["database:5432"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

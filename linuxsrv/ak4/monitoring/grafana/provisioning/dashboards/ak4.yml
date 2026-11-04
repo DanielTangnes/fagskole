@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: ak4
+    folder: AK4
+    type: file
+    disableDeletion: true
+    options:
+      path: /etc/grafana/dashboards

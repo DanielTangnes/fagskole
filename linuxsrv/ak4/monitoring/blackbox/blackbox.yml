@@ -1,0 +1,15 @@
+modules:
+
+  # Nettsiden må svare 200 OG ikke vise DB-feilmeldingen fra index.php.
+  # Da tester sjekken hele kjeden: nginx -> php-fpm -> PostgreSQL.
+  http_app:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: [200]
+      fail_if_body_matches_regexp:
+        - "Could not connect to the database"
+
+  tcp_connect:
+    prober: tcp
+    timeout: 5s

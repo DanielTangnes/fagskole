@@ -1,23 +1,18 @@
-# syntax=docker/dockerfile:1
-ARG REPO_URL=https://github.com/DanielTangnes/23ITDNETT-AK3-LINUX-WEBSITE
-ARG REPO_REF=main
+# Webserver: nginx + PHP-FPM bygget fra ren Alpine (ikke ferdig php-/nginx-image, jf. oppgavekrav)
+FROM alpine:3.22
 
-# --- stage 1: fetch source (git never ships in the final image) ---
-FROM alpine/git:latest AS source
-ARG REPO_URL
-ARG REPO_REF
-WORKDIR /src
-RUN git clone --depth 1 --branch "${REPO_REF}" "${REPO_URL}" app \
- && rm -rf app/.git
+# - php83-pdo_pgsql: PDO-driveren index.php bruker mot PostgreSQL
+# - clear_env = no: php-fpm sletter ellers alle miljøvariabler, og getenv('DB_HOST') o.l. blir false
+RUN apk add --no-cache nginx supervisor php83 php83-fpm php83-pdo php83-pdo_pgsql \
+ && sed -i 's/^;\?clear_env = .*/clear_env = no/' /etc/php83/php-fpm.d/www.conf \
+ && mkdir -p /run/nginx /var/www/html
 
-# --- stage 2: runtime ---
-FROM php:8.3-fpm-alpine
-RUN apk add --no-cache nginx supervisor \
- && mkdir -p /run/nginx
-
-COPY --from=source --chown=www-data:www-data /src/app /var/www/html
-COPY nginx.conf        /etc/nginx/http.d/default.conf
-COPY supervisord.conf  /etc/supervisord.conf
+# Nettsidens kode ligger i leveransen (src/), ikke hentet fra nett ved build
+COPY src/ /var/www/html/
+COPY nginx.conf       /etc/nginx/http.d/default.conf
+COPY supervisord.conf /etc/supervisord.conf
 
 EXPOSE 80
+
+# supervisord kjører nginx og php-fpm i forgrunnen som to prosesser i samme container
 CMD ["supervisord", "-c", "/etc/supervisord.conf"]
