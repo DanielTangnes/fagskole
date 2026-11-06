@@ -1,4 +1,3 @@
-# Webserver: nginx + PHP-FPM bygget fra ren Alpine (ikke ferdig php-/nginx-image, jf. oppgavekrav)
 FROM alpine:3.22
 
 # - php83-pdo_pgsql: PDO-driveren index.php bruker mot PostgreSQL
@@ -7,7 +6,6 @@ RUN apk add --no-cache nginx supervisor php83 php83-fpm php83-pdo php83-pdo_pgsq
  && sed -i 's/^;\?clear_env = .*/clear_env = no/' /etc/php83/php-fpm.d/www.conf \
  && mkdir -p /run/nginx /var/www/html
 
-# Nettsidens kode ligger i leveransen (src/), ikke hentet fra nett ved build
 COPY src/ /var/www/html/
 COPY nginx.conf       /etc/nginx/http.d/default.conf
 COPY supervisord.conf /etc/supervisord.conf
