@@ -34,7 +34,6 @@ CREATE ROLE :"db_user" LOGIN PASSWORD :'db_pass';
 CREATE DATABASE :"db_name" OWNER :"db_user";
 SQL
 
-    # Schema og testdata kjøres som app-brukeren, så den eier tabellene
     for f in /docker-init/*.sql; do
         [ -e "$f" ] || continue
         echo "[entrypoint] Kjører $f"
