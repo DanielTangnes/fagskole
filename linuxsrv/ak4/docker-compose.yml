@@ -14,9 +14,7 @@ services:
     volumes:
       - dbdata:/var/lib/postgresql/data
     networks: [backend]
-    # Ingen "ports": databasen skal bare kunne nås fra docker-nettet, ikke fra host
     healthcheck:
-      # Lykkes først når den endelige serveren lytter på TCP (ikke under init, som bare bruker socket)
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
       interval: 5s
       timeout: 3s
@@ -27,8 +25,7 @@ services:
   webserver:
     build: ./webserver
     environment:
-      # Navnene index.php leser med getenv()
-      DB_HOST: database            # service-navnet over -> Docker sin interne DNS
+      DB_HOST: database
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
@@ -79,8 +76,6 @@ services:
 
   # Ressursbruk per container: CPU, minne, nettverk
   # NB: >= 0.53 kreves med Docker 29 / containerd image store (standard på nye installasjoner).
-  # Eldre cAdvisor (gcr.io/cadvisor/cadvisor:v0.52.x) finner ikke containerne der.
-  # Fra 0.53 publiseres imaget på ghcr.io/google/cadvisor.
   cadvisor:
     image: ghcr.io/google/cadvisor:0.55.1
     command:
@@ -92,7 +87,6 @@ services:
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
-    # Ingen "ports": cAdvisor bruker 8080 internt, og webserver har 8080 på host
     networks: [monitoring]
     restart: unless-stopped
 
@@ -103,7 +97,7 @@ services:
       - --config.file=/etc/blackbox/blackbox.yml
     volumes:
       - ./monitoring/blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
-    networks: [monitoring, backend]   # backend: må nå webserver og database
+    networks: [monitoring, backend]
     restart: unless-stopped
 
   grafana:
@@ -113,7 +107,6 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/ak4-oversikt.json
     volumes:
-      # Datakilde og dashboard provisioneres fra filer -> ingen manuelle steg etter oppstart
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafanadata:/var/lib/grafana
