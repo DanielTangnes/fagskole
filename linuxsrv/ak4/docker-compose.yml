@@ -83,9 +83,19 @@ services:
   # Fra 0.53 publiseres imaget på ghcr.io/google/cadvisor.
   cadvisor:
     image: ghcr.io/google/cadvisor:0.55.1
+    # cAdvisor trenger containerd-socketen for å finne Docker-containerne.
+    # Den ligger på ulike steder avhengig av installasjon:
+    #   - Docker Engine på Linux (pakke):          /run/containerd/containerd.sock
+    #   - Docker Desktop / dockerd-styrt containerd: /run/docker/containerd/containerd.sock
+    # Wrapperen velger den som finnes, så samme compose-fil virker begge steder.
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - --docker_only=true
-      - --housekeeping_interval=10s
+      - |
+        for s in /run/containerd/containerd.sock /run/docker/containerd/containerd.sock; do
+          [ -S "$$s" ] && SOCK="$$s" && break
+        done
+        echo "cadvisor: bruker containerd-socket $${SOCK:-INGEN FUNNET}"
+        exec /usr/bin/cadvisor -logtostderr --docker_only=true --housekeeping_interval=10s --containerd="$${SOCK:-/run/containerd/containerd.sock}"
     privileged: true
     volumes:
       - /:/rootfs:ro
