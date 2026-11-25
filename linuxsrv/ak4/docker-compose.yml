@@ -78,23 +78,34 @@ services:
   # NB: >= 0.53 kreves med Docker 29 / containerd image store (standard på nye installasjoner).
   cadvisor:
     image: ghcr.io/google/cadvisor:0.55.1
-    # cAdvisor trenger containerd-socketen for å finne Docker-containerne.
-    # Den ligger på ulike steder avhengig av installasjon:
-    #   - Docker Engine på Linux (pakke):          /run/containerd/containerd.sock
-    #   - Docker Desktop / dockerd-styrt containerd: /run/docker/containerd/containerd.sock
-    # Wrapperen velger den som finnes, så samme compose-fil virker begge steder.
+    # cAdvisor må nå Docker-socketen og containerd-socketen for å finne containerne.
+    # Plasseringen varierer mellom installasjoner:
+    #   - Docker Engine på Linux:  /run/docker.sock + /run/containerd/containerd.sock
+    #   - dockerd-styrt containerd: /run/docker/containerd/containerd.sock
+    #   - Docker Desktop (Mac/Win): sockets inne i Docker-VM-en, under /run
+    # Vi monterer /run (ikke /var/run: på macOS peker /var/run til Mac-ens egen mappe,
+    # ikke til Docker-VM-en) og lar wrapperen finne riktig socket ved oppstart.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        for s in /run/containerd/containerd.sock /run/docker/containerd/containerd.sock; do
-          [ -S "$$s" ] && SOCK="$$s" && break
+        CSOCK=""
+        for s in /run/containerd/containerd.sock /run/docker/containerd/containerd.sock /run/desktop-containerd/containerd.sock; do
+          [ -S "$$s" ] && CSOCK="$$s" && break
         done
-        echo "cadvisor: bruker containerd-socket $${SOCK:-INGEN FUNNET}"
-        exec /usr/bin/cadvisor -logtostderr --docker_only=true --housekeeping_interval=10s --containerd="$${SOCK:-/run/containerd/containerd.sock}"
+        [ -n "$$CSOCK" ] || CSOCK="$$(find /run -maxdepth 4 -type s -name containerd.sock 2>/dev/null | head -n 1)"
+        DSOCK=/run/docker.sock
+        [ -S "$$DSOCK" ] || DSOCK="$$(find /run -maxdepth 4 -type s -name docker.sock 2>/dev/null | head -n 1)"
+        echo "cadvisor: docker-socket=$${DSOCK:-INGEN FUNNET} containerd-socket=$${CSOCK:-INGEN FUNNET}"
+        if [ -z "$$CSOCK" ] || [ -z "$$DSOCK" ]; then
+          echo "cadvisor: sockets funnet under /run:"; find /run -maxdepth 4 -type s 2>/dev/null
+        fi
+        exec /usr/bin/cadvisor -logtostderr --docker_only=true --housekeeping_interval=10s \
+          --docker="unix://$${DSOCK:-/run/docker.sock}" \
+          --containerd="$${CSOCK:-/run/containerd/containerd.sock}"
     privileged: true
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
+      - /run:/run:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
     networks: [monitoring]
