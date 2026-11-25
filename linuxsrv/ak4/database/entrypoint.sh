@@ -19,15 +19,12 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
            --auth-local=trust --auth-host=scram-sha-256 -E UTF8
     rm -f "$pwfile"
 
-    # Lytt på alle grensesnitt i containeren, og tillat passordinnlogging fra docker-nettet.
-    # (Standard er kun localhost - da når ikke web-containeren databasen.)
     echo "listen_addresses = '*'"             >> "$PGDATA/postgresql.conf"
     echo "host  all  all  all  scram-sha-256"  >> "$PGDATA/pg_hba.conf"
 
     # Midlertidig server uten TCP, kun unix-socket, mens vi kjører init
     pg_ctl -D "$PGDATA" -o "-c listen_addresses=''" -w start
 
-    # App-bruker og database. psql-variabler (:"x" / :'x') gir korrekt quoting.
     psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
          -v db_name="$DB_NAME" -v db_user="$DB_USER" -v db_pass="$DB_PASSWORD" <<'SQL'
 CREATE ROLE :"db_user" LOGIN PASSWORD :'db_pass';
@@ -44,5 +41,5 @@ SQL
     echo "[entrypoint] Initialisering ferdig"
 fi
 
-# exec: postgres blir PID 1 og mottar SIGTERM ved 'docker compose down' (ren nedstengning)
+# exec: postgres blir PID 1 og mottar SIGTERM ved 'docker compose down'
 exec postgres -D "$PGDATA"
